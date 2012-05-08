@@ -3,16 +3,16 @@ re
 
 
 ## Overview
-re is a pattern matcher like 'grep', but supports capture groups and multiline matches.
+re is a command line utility for pattern matching similar to 'grep', but supports capture groups and multiline matches.
 The syntax of the regular expressions accepted is the same general syntax used by Perl, Python, and other languages.
 More precisely, it is the syntax accepted by RE2 and described at http://code.google.com/p/re2/wiki/Syntax, except for \C.
 
-## Requirements
+## Prerequisites
 None, binaries are statically linked.
 If you want to compile from source you need the go toolchain: http://golang.org/doc/install
 
 ## Installation
-- Save the 're' binary to a location in your PATH (i.e. /usr/local/bin/)
+- Save the 're' binary to a location in your PATH (i.e. `/usr/local/bin/`)
 - Or compile it yourself `go build re.go`
 
 
