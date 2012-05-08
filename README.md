@@ -3,9 +3,17 @@ re
 
 
 ## Overview
-re is a command line pattern matcher like 'grep', but supports capture groups and multiline matches.
+re is a pattern matcher like 'grep', but supports capture groups and multiline matches.
 The syntax of the regular expressions accepted is the same general syntax used by Perl, Python, and other languages.
 More precisely, it is the syntax accepted by RE2 and described at http://code.google.com/p/re2/wiki/Syntax, except for \C.
+
+## Requirements
+None, binaries are statically linked.
+If you want to compile from source you need the go toolchain: http://golang.org/doc/install
+
+## Installation
+- Save the 're' binary to a location in your PATH (i.e. /usr/local/bin/)
+- Or compile it yourself `go build re.go`
 
 
 ## Usage
@@ -13,10 +21,10 @@ More precisely, it is the syntax accepted by RE2 and described at http://code.go
 
 #### Options
     -d      Delimiter used to seperate capture groups. Default: ", "
-    -g      Allow . to match newline (Note: This will read the entire file into memory)
+    -g      Allow . to match newline (Note: This will read the entire input into memory)
     -i      Ignore case
 
-### Examples
+## Examples
 ###### "grep mode"
     $ uptime | re "average"
     20:19:29 up 119 days, 23:09,  1 user,  load average: 1.66, 1.56, 1.58
