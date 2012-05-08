@@ -1,10 +1,12 @@
 re
 ==
 
+
 ## Overview
-re is a pattern matcher like 'grep', but supports capture groups and multiline matches.
+re is a command line pattern matcher like 'grep', but supports capture groups and multiline matches.
 The syntax of the regular expressions accepted is the same general syntax used by Perl, Python, and other languages.
 More precisely, it is the syntax accepted by RE2 and described at http://code.google.com/p/re2/wiki/Syntax, except for \C.
+
 
 ## Usage
     re [options] PATTERN [FILE...]
