@@ -6,10 +6,16 @@ import (
     "regexp/syntax"
     "os"
     "io"
+    "io/ioutil"
     "bufio"
     "flag"
     "strings"
 )
+
+type Line struct {
+    Prefix string
+    Body string
+}
 
 type Re struct {
     re *regexp.Regexp
@@ -42,38 +48,57 @@ func NewRe(pattern, delimiter string, ignoreCase, dotAll bool) (*Re, error) {
     }, nil
 }
 
-func (self *Re) FindMatches(fnames []string) {
+func (self *Re) FindMatches(fnames []string, matches, errors chan string) {
+    lines := make(chan *Line)
+    go self.patternMatcher(lines, matches)
+
+    var reader func(*Re, *bufio.Reader, chan *Line, string, chan string)
+    if self.dotAll {
+        reader = (*Re).readAllReader
+    } else {
+        reader = (*Re).lineReader
+    }
+
     if len(fnames) == 0 {
-        reader := bufio.NewReader(os.Stdin)
-        self.printMatches(reader, "")
+        reader(self, bufio.NewReader(os.Stdin), lines, "", errors)
     } else {
         for _, fname := range fnames {
             f, err := os.Open(fname)
             if err != nil {
-                fmt.Fprintln(os.Stderr, err)
+                errors<- fmt.Sprintf("%s", err)
                 continue
             }
-            prefix := ""
+            var prefix string
             if (len(fnames) > 1) {
-                prefix = fname
+                prefix = fname + ":"
             }
-            reader := bufio.NewReader(f)
-            self.printMatches(reader, prefix)
+            reader(self, bufio.NewReader(f), lines, prefix, errors)
             f.Close()
         }
     }
+    close(errors)
+    close(lines)
 }
 
-func (self *Re) printMatches(reader *bufio.Reader, prefix string) {
-    lines := make([]string, 0)
+func (self *Re) readAllReader(reader *bufio.Reader, lines chan *Line, prefix string, errors chan string) {
+    bytes, err := ioutil.ReadAll(reader)
+    if err != nil {
+        errors<- fmt.Sprintf("%s", err)
+        return
+    }
+    lines<- &Line{prefix, string(bytes)}
+}
+
+func (self *Re) lineReader(reader *bufio.Reader, lines chan *Line, prefix string, errors chan string) {
     var lineBuffer string
 
     for {
         bytes, hasMore, err := reader.ReadLine()
-        if err == io.EOF {
+        if err != nil {
+            if err != io.EOF {
+                errors<- fmt.Sprintf("%s", err)
+            }
             break
-        } else if err != nil {
-            fmt.Println(err)
         }
 
         line := lineBuffer + string(bytes)
@@ -81,40 +106,66 @@ func (self *Re) printMatches(reader *bufio.Reader, prefix string) {
             lineBuffer = line
             continue
         }
-
-        if self.dotAll {
-            lines = append(lines, line)
-            continue
-        }
-
-        if self.groupCount == 0 && self.re.MatchString(line) {
-            fmt.Println(prefix + line)
-        } else if self.groupCount > 0 {
-            self.printCaptureGroups(line, prefix)
-        }
+        lines<- &Line{prefix, line}
         lineBuffer = ""
     }
 }
 
-func (self *Re) printCaptureGroups(line, prefix string) {
+func (self *Re) patternMatcher(lines chan *Line, matches chan string) {
+    for line := range lines {
+        var match string
+        if self.groupCount == 0 && self.re.MatchString(line.Body) {
+            match = line.Body
+        } else if self.groupCount > 0 {
+            match = self.getCaptureGroups(line.Body)
+        }
+
+        if match != "" {
+            matches<- fmt.Sprintf("%s%s", line.Prefix, match)
+        }
+    }
+    close(matches)
+}
+
+func (self *Re) getCaptureGroups(line string) string {
     matches := self.re.FindAllStringSubmatch(line, -1)
     if matches == nil {
-        return
+        return ""
     }
     entries := make([]string, 0)
     for _, m := range matches {
         groups := m[1:]
         for i, group := range groups {
-            var entry string
-            if name := self.groupNames[i]; name != "" {
-                entry = fmt.Sprintf("%s=%s", name, group)
-            } else {
-                entry = group
-            }
-            entries = append(entries, entry)
+            entries = append(entries, self.prependGroupName(group, i))
         }
     }
-    fmt.Println(prefix + strings.Join(entries, self.delimiter))
+    return strings.Join(entries, self.delimiter)
+}
+
+func (self *Re) prependGroupName(group string, index int) string {
+    if name := self.groupNames[index]; name != "" {
+        return fmt.Sprintf("%s=%s", name, group)
+    }
+    return group
+}
+
+func printOutput(matches, errors chan string, done chan bool) {
+    go func() {
+        for err := range errors {
+            fmt.Fprintln(os.Stderr, err)
+        }
+    }()
+
+    for match := range matches {
+        fmt.Println(match)
+    }
+    done<- true
+}
+
+func usage() {
+    fmt.Fprintln(os.Stderr, "Usage: re [options] PATTERN [FILE...]")
+    flag.PrintDefaults()
+    os.Exit(1)
 }
 
 func main() {
@@ -124,9 +175,8 @@ func main() {
     flag.Parse()
 
     args := flag.Args()
-    if (len(args) == 0) {
-        fmt.Fprintln(os.Stderr, "Missing pattern")
-        os.Exit(1)
+    if len(args) == 0 {
+        usage()
     }
 
     re, err := NewRe(args[0], *delimiter, *ignoreCase, *dotAll)
@@ -134,5 +184,12 @@ func main() {
         fmt.Println(err)
         os.Exit(1)
     }
-    re.FindMatches(args[1:])
+    matches := make(chan string, 10)
+    errors := make(chan string, 10)
+    done := make(chan bool)
+    go printOutput(matches, errors, done)
+    re.FindMatches(args[1:], matches, errors)
+    <-done
 }
+
+
