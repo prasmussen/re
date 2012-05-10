@@ -12,9 +12,94 @@ import (
     "strings"
 )
 
-type Line struct {
-    Prefix string
-    Body string
+type UnitReaderType int
+
+const (
+    LineReader UnitReaderType = iota
+    AllReader
+)
+
+type IOUnit struct {
+    Name string
+    Data string
+}
+
+func NewIOUnit(name, data string) *IOUnit {
+    return &IOUnit{name, data}
+}
+
+type FileIO struct {
+    unitReader func(*FileIO, *bufio.Reader, string, chan error, chan *IOUnit)
+}
+
+func NewFileIO(t UnitReaderType) *FileIO {
+    fio := &FileIO{}
+    switch t {
+        case LineReader:
+            fio.unitReader = (*FileIO).lineReader
+        case AllReader:
+            fio.unitReader = (*FileIO).allReader
+    }
+    return fio
+}
+
+func (self *FileIO) ReadFiles(fnames []string) (chan *IOUnit, chan error) {
+    errors := make(chan error)
+    units := make(chan *IOUnit)
+    go self.fileReader(fnames, errors, units)
+    return units, errors
+}
+
+func (self *FileIO) fileReader(fnames []string, errors chan error, units chan *IOUnit) {
+    defer close(units)
+    defer close(errors)
+
+    // Use stdin if no files are provided
+    if len(fnames) == 0 {
+        self.unitReader(self, bufio.NewReader(os.Stdin), "stdin", errors, units)
+        return
+    }
+
+    for _, fname := range fnames {
+        f, err := os.Open(fname)
+        if err != nil {
+            errors<- err
+            continue
+        }
+        self.unitReader(self, bufio.NewReader(f), fname, errors, units)
+        f.Close()
+    }
+}
+
+func (self *FileIO) lineReader(reader *bufio.Reader, name string, errors chan error, units chan *IOUnit) {
+    var lineBuffer string
+
+    for {
+        bytes, hasMore, err := reader.ReadLine()
+        if err != nil {
+            if err != io.EOF {
+                errors<- err
+            }
+            break
+        }
+
+        line := lineBuffer + string(bytes)
+        if hasMore {
+            lineBuffer = line
+            continue
+        }
+        units<- NewIOUnit(name, line)
+        lineBuffer = ""
+    }
+}
+
+func (self *FileIO) allReader(reader *bufio.Reader, name string, errors chan error, units chan *IOUnit) {
+    bytes, err := ioutil.ReadAll(reader)
+    if err != nil {
+        errors<- err
+        return
+    }
+    units<- NewIOUnit(name, string(bytes))
 }
 
 type Re struct {
@@ -48,87 +133,46 @@ func NewRe(pattern, delimiter string, ignoreCase, dotAll bool) (*Re, error) {
     }, nil
 }
 
-func (self *Re) FindMatches(fnames []string, matches, errors chan string) {
-    lines := make(chan *Line)
-    go self.patternMatcher(lines, matches)
+func (self *Re) Replace(fnames []string, matches, errors chan string) { }
 
-    var reader func(*Re, *bufio.Reader, chan *Line, string, chan string)
-    if self.dotAll {
-        reader = (*Re).readAllReader
-    } else {
-        reader = (*Re).lineReader
-    }
-
-    if len(fnames) == 0 {
-        reader(self, bufio.NewReader(os.Stdin), lines, "", errors)
-    } else {
-        for _, fname := range fnames {
-            f, err := os.Open(fname)
-            if err != nil {
-                errors<- fmt.Sprintf("%s", err)
-                continue
-            }
-            var prefix string
-            if (len(fnames) > 1) {
-                prefix = fname + ":"
-            }
-            reader(self, bufio.NewReader(f), lines, prefix, errors)
-            f.Close()
-        }
-    }
-    close(errors)
-    close(lines)
+func (self *Re) Find(units chan *IOUnit) (chan *Result) {
+    results := make(chan *Result)
+    go self.patternMatcher(units, results)
+    return results
 }
 
-func (self *Re) readAllReader(reader *bufio.Reader, lines chan *Line, prefix string, errors chan string) {
-    bytes, err := ioutil.ReadAll(reader)
-    if err != nil {
-        errors<- fmt.Sprintf("%s", err)
-        return
-    }
-    lines<- &Line{prefix, string(bytes)}
+type Result struct {
+    Data string
+    Unit *IOUnit
 }
 
-func (self *Re) lineReader(reader *bufio.Reader, lines chan *Line, prefix string, errors chan string) {
-    var lineBuffer string
-
-    for {
-        bytes, hasMore, err := reader.ReadLine()
-        if err != nil {
-            if err != io.EOF {
-                errors<- fmt.Sprintf("%s", err)
-            }
-            break
-        }
-
-        line := lineBuffer + string(bytes)
-        if hasMore {
-            lineBuffer = line
-            continue
-        }
-        lines<- &Line{prefix, line}
-        lineBuffer = ""
-    }
+func NewResult(data string, unit *IOUnit) *Result {
+    return &Result{data, unit}
 }
 
-func (self *Re) patternMatcher(lines chan *Line, matches chan string) {
-    for line := range lines {
-        var match string
-        if self.groupCount == 0 && self.re.MatchString(line.Body) {
-            match = line.Body
+func (self *Re) patternMatcher(units chan *IOUnit, results chan *Result) {
+    defer close(results)
+
+    for unit := range units {
+        var data string
+        if self.groupCount == 0 && self.re.MatchString(unit.Data) {
+            // There is a match, but the regex has no capture groups so we set 'output data' = 'input data'
+            data = unit.Data
         } else if self.groupCount > 0 {
-            match = self.getCaptureGroups(line.Body)
+            // The regex has at least one capture group, if the regex does not match; data will be empty
+            data = self.getCaptureGroups(unit.Data)
         }
 
-        if match != "" {
-            matches<- fmt.Sprintf("%s%s", line.Prefix, match)
+        if data != "" {
+            results<- NewResult(data, unit)
         }
     }
-    close(matches)
 }
 
-func (self *Re) getCaptureGroups(line string) string {
-    matches := self.re.FindAllStringSubmatch(line, -1)
+// Returns a string with each capture group seperated by self.delimiter
+// Returns an empty string if the regex does not match the input data
+func (self *Re) getCaptureGroups(data string) string {
+    matches := self.re.FindAllStringSubmatch(data, -1)
     if matches == nil {
         return ""
     }
@@ -149,17 +193,22 @@ func (self *Re) prependGroupName(group string, index int) string {
     return group
 }
 
-func printOutput(matches, errors chan string, done chan bool) {
-    go func() {
-        for err := range errors {
-            fmt.Fprintln(os.Stderr, err)
-        }
-    }()
-
-    for match := range matches {
-        fmt.Println(match)
+func printErrors(errors chan error) {
+    for err := range errors {
+        fmt.Fprintln(os.Stderr, err)
     }
-    done<- true
+}
+
+func printResults(results chan *Result, fnamePrefix bool) {
+    for result := range results {
+        var output string
+        if fnamePrefix {
+            output = fmt.Sprintf("%s:%s", result.Unit.Name, result.Data)
+        } else {
+            output = result.Data
+        }
+        fmt.Println(output)
+    }
 }
 
 func usage() {
@@ -172,24 +221,35 @@ func main() {
     ignoreCase := flag.Bool("i", false, "Ignore case")
     dotAll := flag.Bool("g", false, "Allow . to match newline")
     delimiter := flag.String("d", ", ", "Delimiter used to seperate capture groups")
+    //replaceMode := flag.Bool("r", false, "Replace mode")
     flag.Parse()
 
     args := flag.Args()
     if len(args) == 0 {
         usage()
     }
+    pattern, fnames := args[0], args[1:]
+    prefixFnames := len(fnames) > 1
 
-    re, err := NewRe(args[0], *delimiter, *ignoreCase, *dotAll)
+    re, err := NewRe(pattern, *delimiter, *ignoreCase, *dotAll)
     if err != nil {
         fmt.Println(err)
         os.Exit(1)
     }
-    matches := make(chan string, 10)
-    errors := make(chan string, 10)
-    done := make(chan bool)
-    go printOutput(matches, errors, done)
-    re.FindMatches(args[1:], matches, errors)
-    <-done
+
+    var readerType UnitReaderType
+    if *dotAll {
+        readerType = AllReader
+    } else {
+        readerType = LineReader
+    }
+    fio := NewFileIO(readerType)
+
+    units, errors := fio.ReadFiles(fnames)
+    results := re.Find(units)
+
+    go printErrors(errors)
+    printResults(results, prefixFnames)
 }
 
 
