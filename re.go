@@ -102,6 +102,16 @@ func (self *FileIO) allReader(reader *bufio.Reader, name string, errors chan err
     units<- NewIOUnit(name, string(bytes))
 }
 
+type Result struct {
+    Data string
+    Unit *IOUnit
+}
+
+func NewResult(data string, unit *IOUnit) *Result {
+    return &Result{data, unit}
+}
+
+
 type Re struct {
     re *regexp.Regexp
     dotAll bool
@@ -139,15 +149,6 @@ func (self *Re) Find(units chan *IOUnit) (chan *Result) {
     results := make(chan *Result)
     go self.patternMatcher(units, results)
     return results
-}
-
-type Result struct {
-    Data string
-    Unit *IOUnit
-}
-
-func NewResult(data string, unit *IOUnit) *Result {
-    return &Result{data, unit}
 }
 
 func (self *Re) patternMatcher(units chan *IOUnit, results chan *Result) {
