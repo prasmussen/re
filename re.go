@@ -242,8 +242,7 @@ func parsePattern(pattern string) (string, string, bool) {
         return pattern, "", false
     }
     // Its a substitute pattern -- returning the extracted source pattern and replacement string
-    src, repl := parts[1], strings.Replace(parts[2], "\\1", "$1", -1)
-    return src, repl, true
+    return parts[1], parts[2], true
 }
 
 func dieOnError(err error) {
