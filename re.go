@@ -143,15 +143,31 @@ func NewRe(pattern, delimiter string, ignoreCase, dotAll bool) (*Re, error) {
     }, nil
 }
 
-func (self *Re) Replace(fnames []string, matches, errors chan string) { }
 
-func (self *Re) Find(units chan *IOUnit) (chan *Result) {
+func (self *Re) Match(units chan *IOUnit) (chan *Result) {
     results := make(chan *Result)
-    go self.patternMatcher(units, results)
+    go self.matcher(units, results)
     return results
 }
 
-func (self *Re) patternMatcher(units chan *IOUnit, results chan *Result) {
+func (self *Re) Replace(repl string, units chan *IOUnit) (chan *Result) {
+    results := make(chan *Result)
+    go self.replacer(repl, units, results)
+    return results
+}
+
+func (self *Re) replacer(repl string, units chan *IOUnit, results chan *Result) {
+    defer close(results)
+
+    for unit := range units {
+        data := self.re.ReplaceAllString(unit.Data, repl)
+        if data != "" {
+            results<- NewResult(data, unit)
+        }
+    }
+}
+
+func (self *Re) matcher(units chan *IOUnit, results chan *Result) {
     defer close(results)
 
     for unit := range units {
@@ -218,25 +234,41 @@ func usage() {
     os.Exit(1)
 }
 
+func parsePattern(pattern string) (string, string, bool) {
+    re := regexp.MustCompile("s?/([^/]+)/([^/]*)/")
+    parts := re.FindStringSubmatch(pattern)
+    if parts == nil {
+        // This is not a substitute pattern -- returning input pattern as is
+        return pattern, "", false
+    }
+    // Its a substitute pattern -- returning the extracted source pattern and replacement string
+    src, repl := parts[1], strings.Replace(parts[2], "\\1", "$1", -1)
+    return src, repl, true
+}
+
+func dieOnError(err error) {
+    if err != nil {
+        fmt.Fprintln(os.Stderr, err)
+        os.Exit(1)
+    }
+}
+
 func main() {
     ignoreCase := flag.Bool("i", false, "Ignore case")
     dotAll := flag.Bool("g", false, "Allow . to match newline")
     delimiter := flag.String("d", ", ", "Delimiter used to seperate capture groups")
-    //replaceMode := flag.Bool("r", false, "Replace mode")
     flag.Parse()
 
     args := flag.Args()
     if len(args) == 0 {
         usage()
     }
-    pattern, fnames := args[0], args[1:]
-    prefixFnames := len(fnames) > 1
+
+    pattern, replaceString, replaceMode := parsePattern(args[0])
+    fnames := args[1:]
 
     re, err := NewRe(pattern, *delimiter, *ignoreCase, *dotAll)
-    if err != nil {
-        fmt.Println(err)
-        os.Exit(1)
-    }
+    dieOnError(err)
 
     var readerType UnitReaderType
     if *dotAll {
@@ -247,10 +279,15 @@ func main() {
     fio := NewFileIO(readerType)
 
     units, errors := fio.ReadFiles(fnames)
-    results := re.Find(units)
-
+    var results chan *Result
+    if replaceMode {
+        results = re.Replace(replaceString, units)
+    } else {
+        results = re.Match(units)
+    }
     go printErrors(errors)
-    printResults(results, prefixFnames)
+    fnamePrefix := len(fnames) > 1
+    printResults(results, fnamePrefix)
 }
 
 
