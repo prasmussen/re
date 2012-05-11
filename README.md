@@ -45,3 +45,10 @@ If you want to compile from source you need the go toolchain: http://golang.org/
     $ ifconfig | re -g "(?P<IF>eth\d+).+?inet addr:(?P<IP>[\d.]+)"
     IF=eth0, IP=10.0.0.100, IF=eth1, IP=10.0.0.101
 
+###### Substitution
+    $ uptime | re "s/up/uptime:/"
+    20:19:29 uptime: 119 days, 23:09,  1 user,  load average: 1.66, 1.56, 1.58
+
+###### Substitution with capture group
+    $ uptime | re "s/(up)/\${1}time:/"
+    20:19:29 uptime: 119 days, 23:09,  1 user,  load average: 1.66, 1.56, 1.58
