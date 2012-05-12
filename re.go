@@ -115,12 +115,13 @@ func NewResult(data string, unit *IOUnit) *Result {
 type Re struct {
     re *regexp.Regexp
     dotAll bool
-    delimiter string
+    groupDelimiter string
+    groupRepeatDelimiter string
     groupCount int
     groupNames []string
 }
 
-func NewRe(pattern, delimiter string, ignoreCase, dotAll bool) (*Re, error) {
+func NewRe(pattern, groupDelimiter, groupRepeatDelimiter string, ignoreCase, dotAll bool) (*Re, error) {
     flags := syntax.Perl
     if ignoreCase {
         flags |= syntax.FoldCase
@@ -137,7 +138,8 @@ func NewRe(pattern, delimiter string, ignoreCase, dotAll bool) (*Re, error) {
     return &Re{
         re: regexp.MustCompile(meta.String()),
         dotAll: dotAll,
-        delimiter: delimiter,
+        groupDelimiter: groupDelimiter,
+        groupRepeatDelimiter: groupRepeatDelimiter,
         groupCount: meta.MaxCap(),
         groupNames: meta.CapNames()[1:],
     }, nil
@@ -186,21 +188,24 @@ func (self *Re) matcher(units chan *IOUnit, results chan *Result) {
     }
 }
 
-// Returns a string with each capture group seperated by self.delimiter
+// Returns a string with each capture group seperated by self.groupDelimiter
 // Returns an empty string if the regex does not match the input data
 func (self *Re) getCaptureGroups(data string) string {
-    matches := self.re.FindAllStringSubmatch(data, -1)
-    if matches == nil {
+    matchList := self.re.FindAllStringSubmatch(data, -1)
+    if matchList == nil {
         return ""
     }
-    entries := make([]string, 0)
-    for _, m := range matches {
-        groups := m[1:]
-        for i, group := range groups {
-            entries = append(entries, self.prependGroupName(group, i))
+
+    entries := make([]string, len(matchList), len(matchList))
+    for i, list := range matchList {
+        matches := list[1:]
+        groups := make([]string, len(matches), len(matches))
+        for j, match := range matches {
+            groups[j] = self.prependGroupName(match, j)
         }
+        entries[i] = strings.Join(groups, self.groupDelimiter)
     }
-    return strings.Join(entries, self.delimiter)
+    return strings.Join(entries, self.groupRepeatDelimiter)
 }
 
 func (self *Re) prependGroupName(group string, index int) string {
@@ -255,7 +260,8 @@ func dieOnError(err error) {
 func main() {
     ignoreCase := flag.Bool("i", false, "Ignore case")
     dotAll := flag.Bool("g", false, "Allow . to match newline")
-    delimiter := flag.String("d", ", ", "Delimiter used to seperate capture groups")
+    groupDelimiter := flag.String("d", ", ", "Delimiter used to seperate capture groups")
+    groupRepeatDelimiter := flag.String("dr", "\n", "Delimiter used to seperate capture group repeats")
     flag.Parse()
 
     args := flag.Args()
@@ -266,7 +272,7 @@ func main() {
     pattern, replaceString, replaceMode := parsePattern(args[0])
     fnames := args[1:]
 
-    re, err := NewRe(pattern, *delimiter, *ignoreCase, *dotAll)
+    re, err := NewRe(pattern, *groupDelimiter, *groupRepeatDelimiter, *ignoreCase, *dotAll)
     dieOnError(err)
 
     var readerType UnitReaderType
