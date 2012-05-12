@@ -21,6 +21,7 @@ If you want to compile from source you need the go toolchain: http://golang.org/
 
 #### Options
     -d      Delimiter used to seperate capture groups. Default: ", "
+    -dr     Delimiter used to seperate capture group repeats. Default: "\n"
     -g      Allow . to match newline (Note: This will read the entire input into memory)
     -i      Ignore case
 
@@ -42,8 +43,9 @@ If you want to compile from source you need the go toolchain: http://golang.org/
     1min=1.66 -> 5min=1.56 -> 15min=1.58
 
 ###### Multiline match
-    $ ifconfig | re -g "(?P<IF>eth\d+).+?inet addr:(?P<IP>[\d.]+)"
-    IF=eth0, IP=10.0.0.100, IF=eth1, IP=10.0.0.101
+    $ ifconfig | re -g "(eth\d+).+?inet addr:([\d.]+)"
+    eth0, IP=10.0.0.100
+    eth1, IP=10.0.0.101
 
 ###### Substitution
     $ uptime | re "s/up/uptime:/"
