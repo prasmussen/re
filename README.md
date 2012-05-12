@@ -54,3 +54,7 @@ If you want to compile from source you need the go toolchain: http://golang.org/
 ###### Substitution with capture group
     $ uptime | re "s/(up)/\${1}time:/"
     20:19:29 uptime: 119 days, 23:09,  1 user,  load average: 1.66, 1.56, 1.58
+    
+###### Substitution with named capture group
+    $ uptime | re "s/(?P<prefix>up)/\${prefix}time:/"
+    20:19:29 uptime: 119 days, 23:09,  1 user,  load average: 1.66, 1.56, 1.58
