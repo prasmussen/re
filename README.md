@@ -21,7 +21,7 @@ If you want to compile from source you need the go toolchain: http://golang.org/
 
 #### Options
     -d      Delimiter used to seperate capture groups. Default: ", "
-    -dr     Delimiter used to seperate capture group repeats. Default: "\n"
+    -dr     Delimiter used to seperate repeated capture groups. Default: "\n"
     -g      Allow . to match newline (Note: This will read the entire input into memory)
     -i      Ignore case
 
